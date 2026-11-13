@@ -1,0 +1,597 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TLM-1 · Tiny Language Model</title>
+<style>
+  :root{
+    /* Yellowed vintage-plastic body — deliberately NOT the AI-default cream */
+    --case:        #cdbf93;
+    --case-hi:     #ddd0a6;
+    --case-lo:     #a89a6e;
+    --case-line:   #8f815a;
+    --ink:         #3d3418;      /* screen-printed labels on the plastic */
+    --ink-soft:    #6b5f38;
+    /* Classic pea-green reflective LCD */
+    --lcd:         #97a86a;
+    --lcd-dark:    #7d8f52;
+    --lcd-ink:     #26320f;
+    --lcd-ghost:   #26320f2e;    /* the "off" segments you can faintly see */
+    --led:         #d24b3a;
+    --led-off:     #6a4a3a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(120% 90% at 50% 0%, #2c2c30 0%, #17171a 70%);
+    color:var(--ink);
+    font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+    display:flex;flex-direction:column;align-items:center;
+    padding:28px 16px 48px;gap:18px;min-height:100%;
+  }
+
+  /* ---------- the device ---------- */
+  .device{
+    width:min(420px,100%);
+    background:linear-gradient(160deg,var(--case-hi),var(--case) 40%,var(--case-lo));
+    border-radius:26px 26px 30px 30px;
+    padding:20px 20px 26px;
+    box-shadow:
+      0 1px 0 #fff6d8 inset,
+      0 -3px 8px #00000022 inset,
+      0 26px 50px -18px #000000aa,
+      0 2px 0 #6f6444;
+    border:1px solid var(--case-line);
+    position:relative;
+  }
+  .brandbar{
+    display:flex;align-items:baseline;justify-content:space-between;
+    padding:0 4px 12px;
+  }
+  .brand{font-weight:800;letter-spacing:.14em;font-size:13px}
+  .brand small{font-weight:600;color:var(--ink-soft);letter-spacing:.06em}
+  .model-no{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:11px;color:var(--ink-soft);letter-spacing:.1em;
+    border:1px solid var(--case-line);border-radius:4px;padding:2px 6px;
+  }
+
+  /* ---------- LCD ---------- */
+  .bezel{
+    background:linear-gradient(#2a2a22,#3a3a2e);
+    border-radius:10px;padding:12px;
+    box-shadow:0 2px 5px #00000066 inset, 0 1px 0 #fff4c8 55;
+  }
+  .lcd{
+    background:
+      linear-gradient(100deg,var(--lcd-dark),var(--lcd) 30%,var(--lcd-dark));
+    border-radius:5px;
+    padding:12px 13px 8px;
+    min-height:150px;
+    display:flex;flex-direction:column;
+    box-shadow:0 0 0 2px #1c1c14, 0 2px 6px #00000055 inset;
+    position:relative;overflow:hidden;
+  }
+  .lcd::after{ /* glass sheen */
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(120deg,#ffffff26 0%,#ffffff00 30%);
+  }
+  .readout{
+    flex:1;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    color:var(--lcd-ink);
+    font-size:16px;line-height:1.5;font-weight:600;
+    letter-spacing:.01em;
+    word-break:break-word;
+    overflow-y:auto;
+    text-shadow:0 1px 0 #ffffff22;
+  }
+  .readout .ghost{color:var(--lcd-ghost);font-style:italic}
+  /* deliberation trace — dimmer than the utterance, because it is worth less */
+  .readout .trace{margin-bottom:9px}
+  .readout .tl{white-space:pre-wrap;font-size:13.5px;line-height:1.42}
+  .readout .th{opacity:.6;font-style:italic}
+  .readout .cand{opacity:.92}
+  .readout .roll{opacity:.68}
+  .cursor{
+    display:inline-block;width:9px;height:1.05em;
+    background:var(--lcd-ink);vertical-align:-2px;margin-left:1px;
+    animation:blink 1.05s steps(1) infinite;
+  }
+  @keyframes blink{50%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
+
+  .statusbar{
+    display:flex;gap:10px;justify-content:space-between;
+    margin-top:8px;padding-top:7px;
+    border-top:1px dashed #26320f44;
+    font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-size:10.5px;font-weight:700;color:var(--lcd-ink);
+    letter-spacing:.04em;
+  }
+  .statusbar span{opacity:.85;white-space:nowrap}
+
+  /* ---------- controls ---------- */
+  .power{display:flex;align-items:center;gap:7px;margin:14px 4px 4px;font-size:10px;letter-spacing:.14em;color:var(--ink-soft);font-weight:700}
+  .led{width:9px;height:9px;border-radius:50%;background:var(--led-off);box-shadow:0 0 0 1px #00000030 inset;transition:.25s}
+  .led.on{background:var(--led);box-shadow:0 0 8px 1px #d24b3a99, 0 0 0 1px #00000030 inset}
+
+  .keys{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+  button{font:inherit;cursor:pointer;color:var(--ink);
+    background:linear-gradient(#e2d5aa,#c2b483);
+    border:1px solid var(--case-line);
+    border-radius:9px;padding:11px 10px;font-weight:800;letter-spacing:.08em;
+    font-size:12px;text-transform:uppercase;
+    box-shadow:0 2px 0 #8f815a, 0 3px 5px #00000030;
+    transition:transform .05s, box-shadow .05s;
+  }
+  button:active{transform:translateY(2px);box-shadow:0 0 0 #8f815a,0 1px 3px #00000040}
+  button:focus-visible{outline:3px solid #3d341888;outline-offset:2px}
+  button.big{grid-column:1 / -1;padding:14px;font-size:14px;
+    background:linear-gradient(#f0c14b,#d99a2b);border-color:#a8741c;
+    box-shadow:0 3px 0 #a8741c,0 4px 7px #00000035}
+  button.big:active{box-shadow:0 0 0 #a8741c,0 1px 3px #00000045}
+  button.tiny{font-size:10.5px;padding:9px 8px}
+  .brainrow{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:10.5px;font-weight:700;letter-spacing:.1em;color:var(--ink-soft)}
+  .brainrow .seg{display:flex;border:1px solid var(--case-line);border-radius:7px;overflow:hidden}
+  .seg button{border:0;border-radius:0;box-shadow:none;padding:7px 12px;background:#c2b483}
+  .seg button[aria-pressed="true"]{background:#3d3418;color:#e9dcae}
+  .seg button:active{transform:none}
+  .modegloss{margin:7px 4px 0;font-size:10.5px;letter-spacing:.05em;
+    color:var(--ink-soft);font-weight:700;line-height:1.4}
+  .modegloss b{color:var(--ink)}
+
+  /* ---------- feeding tray ---------- */
+  .tray{width:min(420px,100%)}
+  .tray label{display:block;font-size:11px;font-weight:800;letter-spacing:.12em;
+    color:#c9bd98;text-transform:uppercase;margin:0 4px 7px}
+  textarea{
+    width:100%;min-height:104px;resize:vertical;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.5;
+    padding:12px 13px;border-radius:12px;border:1px solid #4a4638;
+    background:#f4efe0;color:#2c2716;
+    box-shadow:0 2px 6px #00000055 inset;
+  }
+  textarea:focus-visible{outline:3px solid #f0c14b99;outline-offset:1px}
+  .hint{font-size:11px;color:#9a9078;margin:8px 4px 0;line-height:1.5}
+  .hint code{background:#00000030;padding:1px 5px;border-radius:4px;color:#d9cfa8}
+  .footnote{max-width:420px;font-size:11px;color:#8a8168;line-height:1.55;text-align:center;margin-top:4px}
+  .footnote b{color:#c9bd98}
+
+  /* ---------- probe panel (paper diagnostic tape) ---------- */
+  .probe{width:min(420px,100%)}
+  .probe .row{display:flex;gap:8px;margin-top:8px}
+  .probe input{
+    flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;
+    padding:11px 12px;border-radius:10px;border:1px solid #4a4638;
+    background:#f4efe0;color:#2c2716;box-shadow:0 2px 6px #00000055 inset;
+  }
+  .probe input:focus-visible{outline:3px solid #f0c14b99;outline-offset:1px}
+  .probe .go{white-space:nowrap;background:linear-gradient(#e2d5aa,#c2b483)}
+  .presets{display:flex;gap:8px;margin-top:8px}
+  .presets button{flex:1;font-size:10.5px;padding:9px 6px}
+  .presets .known{background:linear-gradient(#bcd48f,#9bbd63);border-color:#6f8f3c}
+  .presets .unknown{background:linear-gradient(#e6a79a,#d5776a);border-color:#a8534a;color:#3a1712}
+
+  .tape{
+    margin-top:12px;background:#f5f1e6;border-radius:8px;
+    padding:14px 15px 16px;color:#2c2716;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.5;
+    box-shadow:0 3px 10px #00000055, 0 0 0 1px #00000018;
+    background-image:repeating-linear-gradient(#f5f1e6,#f5f1e6 22px,#ece6d4 22px,#ece6d4 23px);
+    min-height:52px;
+  }
+  .tape .lbl{font-size:10px;letter-spacing:.14em;color:#9a8f6c;font-weight:700}
+  .tape .you{font-weight:700;margin:2px 0 10px}
+  .bars{display:flex;flex-direction:column;gap:5px;margin:4px 0 12px}
+  .bar{display:grid;grid-template-columns:88px 1fr 46px;align-items:center;gap:8px}
+  .bar .w{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar .track{height:11px;background:#e0d9c2;border-radius:3px;overflow:hidden}
+  .bar .fill{height:100%;background:linear-gradient(90deg,#9bbd63,#7d9f45)}
+  .bar .pct{text-align:right;color:#6b5f38;font-size:11px}
+  .deadend{
+    background:#f6ddd6;border:1px dashed #b85c4e;border-radius:6px;
+    padding:10px 12px;margin:4px 0 12px;color:#7a2a1e;font-weight:600;line-height:1.5;
+  }
+  .ppl{display:flex;align-items:baseline;gap:8px;border-top:1px dashed #00000022;padding-top:10px}
+  .ppl .num{font-size:22px;font-weight:800;letter-spacing:.02em}
+  .ppl .num.inf{color:#b8402f}
+  .ppl .gloss{font-size:11px;color:#6b5f38;line-height:1.4}
+</style>
+
+<div class="device" role="group" aria-label="Tiny Language Model TLM-1">
+  <div class="brandbar">
+    <div class="brand">TinyLanguage <small>™</small></div>
+    <div class="model-no">TLM-1</div>
+  </div>
+
+  <div class="bezel">
+    <div class="lcd">
+      <div class="readout" id="readout" aria-live="polite">
+        <span class="ghost">feed me words. i will learn them.<br>poorly.</span><span class="cursor" id="cursor"></span>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar" aria-hidden="false">
+    <span id="s-params">PARAMS&nbsp;0</span>
+    <span id="s-vocab">VOCAB&nbsp;0</span>
+    <span id="s-brain">2-GRAM</span>
+  </div>
+
+  <div class="power">
+    <span class="led" id="led"></span> PWR / MODEL LOADED
+  </div>
+
+  <div class="keys">
+    <button class="big" id="btn-speak">Speak</button>
+    <button id="btn-train">Train</button>
+    <button class="tiny" id="btn-clear">Clear brain</button>
+  </div>
+
+  <div class="brainrow">
+    MODE
+    <div class="seg" role="group" aria-label="Reasoning mode">
+      <button data-order="1" aria-pressed="true">Standard</button>
+      <button data-order="2" aria-pressed="false">&#10043; Thinking</button>
+    </div>
+  </div>
+  <p class="modegloss" id="modegloss"></p>
+</div>
+
+<div class="tray">
+  <label for="corpus">Training tape</label>
+  <textarea id="corpus" spellcheck="false"></textarea>
+  <p class="hint">Paste any text, hit <code>TRAIN</code>, then <code>SPEAK</code>. Bigger tape → slightly less nonsense. Slightly.</p>
+</div>
+
+<div class="probe">
+  <label for="probe-in" style="display:block;font-size:11px;font-weight:800;letter-spacing:.12em;color:#c9bd98;text-transform:uppercase;margin:0 4px 3px">Probe the brain</label>
+  <p class="hint" style="margin:0 4px 6px">Type a phrase. I'll tell you what I think comes next, and how surprised I am.</p>
+  <div class="row">
+    <input id="probe-in" spellcheck="false" placeholder="type some words...">
+    <button class="go" id="btn-probe">Probe</button>
+  </div>
+  <div class="presets">
+    <button class="known"   id="btn-known">A phrase I know</button>
+    <button class="unknown" id="btn-unknown">A phrase I don't</button>
+  </div>
+  <div class="tape" id="tape">
+    <span class="lbl">DIAGNOSTIC TAPE</span><br>
+    <span style="color:#9a8f6c">idle. probe something.</span>
+  </div>
+</div>
+
+<p class="footnote">
+  Under the plastic: a <b>bigram Markov chain</b>. It counts which word tends to follow which, then rolls dice.
+  No attention. No embeddings. No idea what it's saying. It is a language model the way a paper airplane is an aircraft — technically, yes.
+  <br><br><b>Thinking mode</b> is a <b>trigram</b>. That is the whole upgrade: it remembers one more word.
+  Everything it shows you while deliberating is real — the actual candidate table, the actual dice roll, the actual elapsed time.
+  Nothing is staged, which is exactly why it isn't impressive.
+  <br><br><b>The gap:</b> hit a word-pair it never saw and it hard-stops — perplexity <b>∞</b>. A model like Claude never dead-ends there,
+  not from seeing more, but because it <i>computes</i> a guess from a map of meaning instead of looking one up. The ∞ is exactly where lookup ends and generalization would begin.
+</p>
+
+<script>
+(function(){
+  const readout = document.getElementById('readout');
+  const cursor  = document.getElementById('cursor');
+  const led     = document.getElementById('led');
+  const corpusEl= document.getElementById('corpus');
+  const sParams = document.getElementById('s-params');
+  const sVocab  = document.getElementById('s-vocab');
+  const sBrain  = document.getElementById('s-brain');
+  const modegloss = document.getElementById('modegloss');
+
+  let order = 1;
+  let model = null; // { map: Map<ctx, [word,count][]>, starts: [], vocab:Set, params:int }
+
+  // A little self-referential seed so SPEAK works the instant you power on.
+  const SEED =
+`i am a tiny language model. i am very small. i live in a plastic box.
+i do not think. i count. i count the words that come after other words.
+then i roll the dice and say one. sometimes it makes sense. usually it does not.
+i have no attention. i have no idea. i have no shame.
+feed me your words and i will give them back to you, shuffled and confused.
+i am small but i am trying. that is all a tiny model can do.`;
+  corpusEl.value = SEED;
+
+  function tokenize(text){
+    return (text.match(/[^\s]+/g) || []).map(t=>t.toLowerCase());
+  }
+  const enders = /[.!?]["')\]]?$/;
+
+  function train(){
+    const toks = tokenize(corpusEl.value);
+    if(toks.length <= order){
+      typeOut("...not enough words on the tape to learn from. give me more.");
+      led.classList.remove('on');
+      model=null; updateStatus(0,0);
+      return;
+    }
+    const raw = new Map();      // ctx -> Map<word,count>
+    const starts = [];
+    const vocab = new Set();
+    // first context is a start
+    starts.push(toks.slice(0, order).join(' '));
+    for(let i=0;i<toks.length;i++) vocab.add(toks[i]);
+
+    for(let i=0;i+order<toks.length;i++){
+      const ctx = toks.slice(i,i+order).join(' ');
+      const nxt = toks[i+order];
+      if(!raw.has(ctx)) raw.set(ctx,new Map());
+      const m = raw.get(ctx);
+      m.set(nxt,(m.get(nxt)||0)+1);
+      // a word that ends a sentence makes the NEXT context a valid start
+      if(enders.test(toks[i+order-1]) && i+order<toks.length){
+        starts.push(toks.slice(i+order, i+order+order).join(' '));
+      }
+    }
+    // flatten + count parameters (distinct edges)
+    const map = new Map(); let params=0;
+    for(const [ctx,m] of raw){
+      map.set(ctx, [...m.entries()]);
+      params += m.size;
+    }
+    model = {map, starts:[...new Set(starts)].filter(s=>map.has(s) || s), vocab, params};
+    updateStatus(params, vocab.size);
+    led.classList.add('on');
+    typeOut("brain loaded. "+params+" parameter"+(params===1?"":"s")+". press speak.");
+  }
+
+  function updateStatus(params,vocab){
+    sParams.textContent = 'PARAMS\u00a0'+params;
+    sVocab.textContent  = 'VOCAB\u00a0'+vocab;
+    setNgram(false);
+  }
+
+  // weighted sample from [word,count][]. Pass detail=true to get the roll back
+  // as well as the word — thinking mode shows its arithmetic.
+  function pick(entries, detail){
+    let total=0; for(const [,c] of entries) total+=c;
+    const roll=Math.random()*total;
+    let r=roll, out=entries[entries.length-1][0];
+    for(const [w,c] of entries){ r-=c; if(r<=0){ out=w; break; } }
+    return detail? {w:out, roll, total} : out;
+  }
+
+  // `trace`, if supplied, collects one record per decision for the LCD to read back.
+  function generate(trace){
+    if(!model){ return null; }
+    const starts = model.starts.length? model.starts : [...model.map.keys()];
+    let ctxWords = (starts[Math.floor(Math.random()*starts.length)]||'').split(' ');
+    const out = ctxWords.slice();
+    const MAX = 45;
+    for(let n=0;n<MAX;n++){
+      const ctx = ctxWords.join(' ');
+      const entries = model.map.get(ctx);
+      if(!entries){ if(trace) trace.push({ctx, entries:null}); break; }
+      const d = pick(entries, true);
+      if(trace) trace.push({ctx, entries, chose:d.w, roll:d.roll, total:d.total});
+      out.push(d.w);
+      ctxWords = out.slice(out.length-order);
+      if(enders.test(d.w) && out.length>4 && Math.random()<0.55) break;
+    }
+    let s = out.join(' ').trim();
+    return s.charAt(0).toUpperCase()+s.slice(1);
+  }
+
+  // typewriter effect on the LCD, with reduced-motion respect
+  let typing=null, seq=null;
+  const reduced = window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+  function stopAnim(){
+    if(typing){ clearInterval(typing); typing=null; }
+    if(seq){ clearInterval(seq); seq=null; }
+  }
+  function clearReadout(){
+    stopAnim();
+    readout.textContent='';
+    readout.appendChild(cursor);
+  }
+  function typeOut(text, append){
+    if(append) stopAnim(); else clearReadout();
+    const host=document.createElement('span');
+    readout.insertBefore(host, cursor);
+    if(reduced){
+      host.textContent=text;
+      readout.scrollTop=readout.scrollHeight;
+      return;
+    }
+    let i=0;
+    typing=setInterval(()=>{
+      if(i>=text.length){ clearInterval(typing); typing=null; return; }
+      host.appendChild(document.createTextNode(text[i++]));
+      readout.scrollTop=readout.scrollHeight;
+    }, 22);
+  }
+
+  /* ---------- thinking mode ---------- */
+  /* Standard is a bigram. Thinking is a trigram — one additional word of
+     memory, presented with all the ceremony that implies. Everything the
+     deliberation shows is real: the actual candidate table, the actual dice
+     roll, the actual elapsed time. The joke only works because none of it is
+     faked — showing the work is what reveals how little work there is. */
+  const TRACE_STEPS = 4;
+  function fmtMs(ms){
+    if(ms === 0)   return 'no measurable time';
+    if(ms >= 1)    return ms.toFixed(1)+' milliseconds';
+    if(ms >= 0.01) return ms.toFixed(2)+' milliseconds';
+    return Math.round(ms*1000)+' microseconds';
+  }
+  function traceLines(trace, ms){
+    const lines=[{c:'th', t:'✻ thinking…'}];
+    for(const st of trace.slice(0, TRACE_STEPS)){
+      if(!st.entries){
+        lines.push({c:'th', t:'"'+st.ctx+'" — nothing has ever followed that. i stop.'});
+        continue;
+      }
+      const n=st.entries.length;
+      lines.push({c:'th', t:'"'+st.ctx+'" — '+n+(n===1?' way':' ways')+' to continue'});
+      lines.push({c:'cand', t:'  '+st.entries.slice(0,5).map(([w,c])=>w+'×'+c).join('   ')+(n>5?'   …':'')});
+      lines.push({c:'roll', t: n===1
+        ? '  only one. no decision was made.'
+        : '  rolled '+st.roll.toFixed(1)+' of '+st.total+' → "'+st.chose+'"'});
+    }
+    const rest = trace.length - Math.min(trace.length, TRACE_STEPS);
+    if(rest>0) lines.push({c:'th', t:'… '+rest+' more step'+(rest===1?'':'s')+', all exactly like that.'});
+    lines.push({c:'th', t:'✻ thought for '+fmtMs(ms)+'.'});
+    return lines;
+  }
+  function speakThinking(){
+    clearReadout();
+    setNgram(true);
+    const trace=[];
+    const t0=performance.now();
+    const said=generate(trace);
+    const ms=performance.now()-t0;
+    const lines=traceLines(trace, ms);
+    const box=document.createElement('div');
+    box.className='trace';
+    readout.insertBefore(box, cursor);
+    const put=l=>{
+      const d=document.createElement('div');
+      d.className='tl '+l.c;
+      d.textContent=l.t;
+      box.appendChild(d);
+      readout.scrollTop=readout.scrollHeight;
+    };
+    const finish=()=>{ setNgram(false); typeOut(said || '…', true); };
+    if(reduced){ lines.forEach(put); finish(); return; }
+    let i=0;
+    seq=setInterval(()=>{
+      if(i>=lines.length){ clearInterval(seq); seq=null; finish(); return; }
+      put(lines[i++]);
+    }, 150);
+  }
+  function setNgram(busy){
+    sBrain.textContent = busy ? '✻ THINKING' : (order+1)+'-GRAM';
+  }
+  function updateMode(){
+    modegloss.innerHTML = order<2
+      ? 'Standard · <b>bigram</b> · one word of memory.'
+      : 'Thinking · <b>trigram</b> · two words of memory. <b>100% more.</b>';
+  }
+  function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+  document.getElementById('btn-train').addEventListener('click',train);
+  document.getElementById('btn-speak').addEventListener('click',()=>{
+    if(!model){ typeOut("no brain yet. press train first."); return; }
+    if(order>1){ speakThinking(); return; }
+    typeOut(generate() || "...");
+  });
+  document.getElementById('btn-clear').addEventListener('click',()=>{
+    stopAnim();
+    model=null; led.classList.remove('on'); updateStatus(0,0);
+    readout.innerHTML='<span class="ghost">brain wiped. i remember nothing. it is peaceful here.</span>';
+    readout.appendChild(cursor);
+  });
+  document.querySelectorAll('.seg button').forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('.seg button').forEach(x=>x.setAttribute('aria-pressed','false'));
+      b.setAttribute('aria-pressed','true');
+      order=parseInt(b.dataset.order,10);
+      setNgram(false); updateMode();
+      if(model) train(); // retrain at new context length
+    });
+  });
+
+  // ---------- PROBE: the gap made visible ----------
+  const tape = document.getElementById('tape');
+  const probeIn = document.getElementById('probe-in');
+
+  function distFor(ctx){ // -> sorted [word,prob][] or null
+    const entries = model.map.get(ctx);
+    if(!entries) return null;
+    let tot=0; for(const [,c] of entries) tot+=c;
+    return entries.map(([w,c])=>[w,c/tot]).sort((a,b)=>b[1]-a[1]);
+  }
+
+  function probe(text){
+    if(!model){ tape.innerHTML = tapeHead()+'<span class="deadend">No brain. Press TRAIN first.</span>'; return; }
+    const toks = tokenize(text);
+    if(toks.length < order+1){
+      tape.innerHTML = tapeHead()+'<div class="you">'+escapeHtml(text||'(empty)')+'</div><span style="color:#9a8f6c">give me at least '+(order+1)+' word'+(order?'s':'')+' to work with.</span>';
+      return;
+    }
+
+    // perplexity of the whole probe under the model
+    let sumNLL=0, N=0, brokeAt=null;
+    for(let i=order;i<toks.length;i++){
+      const ctx = toks.slice(i-order,i).join(' ');
+      const w   = toks[i];
+      const entries = model.map.get(ctx);
+      let p=0;
+      if(entries){ let tot=0,cw=0; for(const [ww,c] of entries){tot+=c; if(ww===w)cw=c;} p=cw/tot; }
+      N++;
+      if(p===0){ brokeAt=w; sumNLL=Infinity; break; }
+      sumNLL += -Math.log(p);
+    }
+    const ppl = sumNLL===Infinity ? Infinity : Math.exp(sumNLL/N);
+
+    // what comes next after the probe's tail context
+    const lastCtx = toks.slice(toks.length-order).join(' ');
+    const dist = distFor(lastCtx);
+
+    let html = tapeHead() + '<div class="you">' + escapeHtml(toks.join(' ')) + '<span class="cursor" style="background:#2c2716"></span></div>';
+    html += '<span class="lbl">NEXT WORD?</span>';
+    if(dist){
+      const top = dist.slice(0,6);
+      html += '<div class="bars">';
+      for(const [w,p] of top){
+        html += '<div class="bar"><span class="w">'+escapeHtml(w)+'</span>'
+             +  '<span class="track"><span class="fill" style="width:'+Math.max(4,p*100).toFixed(0)+'%"></span></span>'
+             +  '<span class="pct">'+(p*100).toFixed(0)+'%</span></div>';
+      }
+      html += '</div>';
+    } else {
+      html += '<div class="deadend">DEAD END. I have never seen the word'+(order>1?'s':'')+' \u201c'+escapeHtml(lastCtx)+'\u201d in that position. '
+           +  'There is nothing in my table to look up, and looking up is the only thing I can do. I cannot guess. Guessing is not a feature I have.</div>';
+    }
+
+    // perplexity readout
+    if(ppl===Infinity){
+      html += '<div class="ppl"><span class="num inf">\u221e</span><span class="gloss">'
+           +  'I assigned probability <b>zero</b> to \u201c'+escapeHtml(brokeAt)+'\u201d, so my surprise is infinite. '
+           +  'A real model never says zero \u2014 that\u2019s the whole difference.</span></div>';
+    } else {
+      html += '<div class="ppl"><span class="num">'+ppl.toFixed(1)+'</span><span class="gloss">'
+           +  'perplexity \u2014 roughly, how many words I was choosing between at each step. Lower = more confident (and usually more copied).</span></div>';
+    }
+    tape.innerHTML = html;
+  }
+  function tapeHead(){ return '<span class="lbl">DIAGNOSTIC TAPE</span><br>'; }
+
+  document.getElementById('btn-probe').addEventListener('click',()=>probe(probeIn.value));
+  probeIn.addEventListener('keydown',e=>{ if(e.key==='Enter') probe(probeIn.value); });
+
+  const EXOTIC=['pomegranate','helicopter','tuesday','velvet','asteroid','accordion','jellyfish','origami','tungsten','marmalade'];
+  // Both presets must hand probe() at least order+1 words, or it bails before
+  // it can show anything. A context is only `order` words long, so each one
+  // appends a word of its own.
+  const tailOf = phrase => phrase.split(' ').slice(-order).join(' ');
+  document.getElementById('btn-known').addEventListener('click',()=>{
+    if(!model) return;
+    const keys=[...model.map.keys()];
+    const ctx=keys[Math.floor(Math.random()*keys.length)];
+    const entries=model.map.get(ctx);
+    // prefer a continuation whose own context is also known, so a phrase we
+    // claim to know doesn't land on a dead end at the tail
+    const good=entries.filter(([w])=>model.map.has(tailOf(ctx+' '+w)));
+    const phrase=ctx+' '+pick(good.length? good : entries);
+    probeIn.value=phrase; probe(phrase);
+  });
+  document.getElementById('btn-unknown').addEventListener('click',()=>{
+    if(!model) return;
+    const keys=[...model.map.keys()];
+    const ctx=keys[Math.floor(Math.random()*keys.length)];
+    const unseen=EXOTIC.filter(w=>!model.vocab.has(w));
+    const novel=unseen.length? unseen[Math.floor(Math.random()*unseen.length)] : 'florb';
+    // a real context with the novel word stuck on the end: the tail context is
+    // guaranteed unseen, which is the dead end this button exists to show
+    const phrase=ctx+' '+novel;
+    probeIn.value=phrase; probe(phrase);
+  });
+
+  // power on with the seed already trained
+  updateMode();
+  train();
+})();
+</script>
